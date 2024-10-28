@@ -140,11 +140,24 @@ class Client:
                 else: CLI.printError("Invalid command. Please provide IP Address and Port Number")
             case "/leave" | "/disconnect":
                 self.closeConnection()
+            case "/register":
+                if len(command) != 2:
+                    CLI.printError("Usage: /register <handle>")
+                else:
+                    self.sendCommand(f"/register {command[1]}")
+            case "/store":
+                if len(command) != 2:
+                    CLI.printError("Usage: /store <filename>")
+                else:
+                    self.sendFile(command[1])
             case "/dir":
                 self.getDirectory()
-            case "/get":
-                # fetch file
                 pass
+            case "/get":
+                if len(command) != 2:
+                    CLI.printError("Usage: /getfile <filename>")
+                else:
+                    self.getFile(command[1])
             case "/quit":
                 # close existing connections
                 if self.hasConnection():
@@ -163,7 +176,49 @@ class Client:
             case _:
                 CLI.printError("Invalid command")
 
+
+    def sendCommand(self, command):
+        if self.hasConnection():
+            self.connection.send(command.encode())
+            response = self.connection.recv(1024).decode()
+            print(response)
+        else:
+            CLI.printError("No connection to the server. Please connect first.")
+
         print()
+    
+    def sendFile(self, filename):
+        if self.hasConnection():
+            try:
+                with open(filename, "rb") as file:
+                    self.connection.send(f"/store {filename}".encode())
+                    print(f"Sending file: {filename}")
+                    while True:
+                        data = file.read(1024)
+                        if not data:
+                            break
+                        self.connection.send(data)
+                    self.connection.send(b"<EOF>")  # Send end-of-file marker
+                CLI.printSuccess(f"File {filename} has been sent to the server.")
+            except FileNotFoundError:
+                CLI.printError(f"File {filename} not found.")
+        else:
+            CLI.printError("No connection to the server. Please connect first.")
+
+    def getFile(self, filename):
+        if self.hasConnection():
+            self.connection.send(f"/get {filename}".encode())
+            with open(f"client_{filename}", "wb") as file:
+                print(f"Receiving file: {filename}")
+                while True:
+                    data = self.connection.recv(1024)
+                    if data.endswith(b"<EOF>"):  # Check for end-of-file marker
+                        file.write(data[:-5])  # Write data excluding the marker
+                        break
+                    file.write(data)
+            CLI.printSuccess(f"File received from server: {filename}")
+        else:
+            CLI.printError("No connection to the server. Please connect first.")
 
 
 if __name__ == "__main__":

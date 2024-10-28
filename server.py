@@ -33,43 +33,63 @@ class Server:
             return
 
         with open(f"server/{fileName}", "rb") as file:
-            data = file.read()
-            conn.send(data)
-        pass
+            print(f"Sending file: {fileName}")
+            while True:
+                data = file.read(1024)
+                if not data:
+                    break
+                conn.send(data)
+            conn.send(b"<EOF>")  # Send end-of-file marker
+            print(f"File {fileName} has been sent to the client.")
 
-    # /get
-    def recieveFile(self, conn, fileName):
-        pass
+    # /store
+    def receiveFile(self, conn, fileName):
+        os.makedirs("server", exist_ok=True)  # Ensure the server directory exists
+        with open(f"server/{fileName}", "wb") as file:
+            print(f"Receiving file: {fileName}")
+            while True:
+                data = conn.recv(1024)
+                if not data:
+                    break
+                if data.endswith(b"<EOF>"):  # Check for end-of-file marker
+                    file.write(data[:-5])  # Write data excluding the marker
+                    break
+                file.write(data)
 
     def parseCommand(self, command, conn):
-        """
-        /leave
-        /register
-        /store
-        /dir
-        /get
-        /quit
-        """
-        args = command.split()
+            """
+            /leave
+            /register
+            /store
+            /dir
+            /get
+            /quit
+            """
+            args = command.split()
 
-        match args[0]:
-            case "/dir" | "/ls":
-                self.listDirectory(conn)
-            case "/register":
-                # we include greater than, then simply ignore the 3rd argument onwards
-                if len(args) >= 2:
-                    self.registerUser(conn, args[1])
-                else:
+            match args[0]:
+                case "/dir" | "/ls":
+                    self.listDirectory(conn)
+                case "/register":
+                    if len(args) >= 2:
+                        self.registerUser(conn, args[1])
+                    else:
+                        conn.send(b"Invalid command")
+                case "/store":
+                    if len(args) >= 2:
+                        self.receiveFile(conn, args[1])
+                    else:
+                        conn.send(b"Invalid command")
+                case "/get":
+                    if len(args) >= 2:
+                        self.sendFile(conn, args[1])
+                    else:
+                        conn.send(b"Invalid command")
+                case "/killserver":
+                    conn.send(b"Server is shutting down")
+                    self.keepAlive = False
+                case _:
                     conn.send(b"Invalid command")
-                pass
-            case "/killserver":
-                conn.send(b"Server is shutting down")
-                self.keepAlive = False
-            case _:
-                conn.send(b"Invalid command")
-                pass
-
-        pass
 
     def serverLoop(self):
         self.server.bind(self.ip_port)
