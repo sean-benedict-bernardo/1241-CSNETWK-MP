@@ -68,16 +68,18 @@ class Client:
 
             # setup socekt
             self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            # establish connection
+            # set timeout establish connection
+            self.connection.settimeout(3)
             self.connection.connect((ip, address))
+            self.connection.settimeout(None)
             CLI.printSuccess("Connection to the File Exchange Server is successful!")
-        except ConnectionRefusedError:
+        except ExistingConnectionException:
+            CLI.printError("Connection already exists. Please disconnect first.")
+        except:
             CLI.printError(
                 "Connection to the Server has failed! Please check IP Address and Port Number."
             )
             self.connection = None
-        except ExistingConnectionException:
-            CLI.printError("Connection already exists. Please disconnect first.")
         pass
 
     def closeConnection(self):
@@ -211,11 +213,12 @@ class Client:
                 else:
                     self.getFile(command[1])
             case "/quit":
-                # close existing connections
-                if self.hasConnection():
-                    self.closeConnection()
-                print("Quitting the application...")
-                self.proceed = False
+                # 
+                if not self.hasConnection():
+                    print("Quitting the application...")
+                    self.proceed = False
+                else:
+                    CLI.printError("Please disconnect from the server first.")
             case "/whatthesigma":
                 # do not question this lmao
                 webbrowser.open("https://www.youtube.com/watch?v=xvFZjo5PgG0")
