@@ -34,7 +34,8 @@ class Server:
             conn.sendall(b"File does not exist")
             return
 
-        with open(f"server/{fileName}", "rb") as file:
+        file = open(f"server/{fileName}", "rb")
+        with file:
             print(f"Sending file: {fileName}")
             while True:
                 data = file.read(1024)
@@ -43,11 +44,14 @@ class Server:
                 conn.sendall(data)
             conn.sendall(b"<EOF>")  # Send end-of-file marker
             print(f"File {fileName} has been sent to the client.")
+            file.close()
 
     # /store
     def receiveFile(self, conn, fileName):
         os.makedirs("server", exist_ok=True)  # Ensure the server directory exists
-        with open(f"server/{fileName}", "wb") as file:
+        file = open(f"server/{fileName}", "wb")
+
+        with file:
             print(f"Receiving file: {fileName}")
             while True:
                 data = conn.recv(1024)
@@ -56,6 +60,7 @@ class Server:
 
                 # Write data and exclude the end-of-file marker if there is one
                 file.write(data[:-5] if data.endswith(b"<EOF>") else data)
+            file.close()
 
     def parseCommand(self, command, conn):
         args = command.split()
@@ -83,7 +88,6 @@ class Server:
                 self.keepAlive = False
             case _:
                 conn.sendall(b"Invalid command")
-
 
     def handleClient(self, conn, addr):
         print(f"Connected by {addr[0]}:{addr[1]}")

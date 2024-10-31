@@ -119,6 +119,7 @@ class Client:
                         self.connection.sendall(data)
                     self.connection.sendall(b"<EOF>")  # Send end-of-file marker
                 CLI.printSuccess(f"File {filename} has been sent to the server.")
+                file.close()
             except FileNotFoundError:
                 CLI.printError(f"File {filename} not found.")
         else:
@@ -127,14 +128,18 @@ class Client:
     def getFile(self, filename):
         if self.hasConnection():
             self.connection.sendall(f"/get {filename}".encode())
-            with open(f"client/{filename}", "wb") as file:
+
+            file = open(f"client/{filename}", "wb")
+
+            with file:
                 while True:
                     data = self.connection.recv(1024)
                     if data.endswith(b"<EOF>"):  # Check for end-of-file marker
                         file.write(data[:-5])  # Write data excluding the marker
                         break
                     file.write(data)
-            CLI.printSuccess(f"File received from server: {filename}")
+                CLI.printSuccess(f"File received from server: {filename}")
+                file.close()
         else:
             CLI.printError("No connection to the server. Please connect first.")
 
