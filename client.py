@@ -8,6 +8,9 @@ import os
 CLI prettifier
 """
 
+DEBUGMODE = True
+NUMBYTES = 1024
+
 
 class CLI:
     HEADER = "\033[95m"
@@ -22,9 +25,12 @@ class CLI:
 
     @staticmethod
     def printError(error_message):
-        print(
-            f"{CLI.FAIL+CLI.BOLD}ERROR:{CLI.ENDC+CLI.FAIL} {error_message} {CLI.ENDC}"
-        )
+        print(f"{CLI.FAIL+CLI.BOLD}ERROR: {CLI.ENDC+CLI.FAIL+error_message+CLI.ENDC}")
+
+    @staticmethod
+    def incorrectUsage(syntax):
+        CLI.printError("Syntax Error")
+        print(f"Usage: {syntax}")
 
     @staticmethod
     def printSuccess(message):
@@ -50,23 +56,58 @@ class Client:
             + "To get started, type /? to see the list of commands\n"
         )
 
+        self.userName = ""
+
         if autoStart:
             print("Auto-starting connection to server...")
             self.handleInput("/join 127.0.0.1 12345")
 
         while self.proceed:
             try:
+                print(f"{self.userName}>", end=" ")
                 str_input = input()
                 self.handleInput(str_input)
             except KeyboardInterrupt:
                 if not self.hasConnection():
                     self.handleInput("/quit")
-                    break # terminate the loop
+                    break  # terminate the loop
                 # nothing happens otherwise
 
     def hasConnection(self):
         return self.connection is not None
 
+    def sendCommand(self, command):
+        if not self.hasConnection():
+            # [11]
+            CLI.printError("No connection to the server. Please connect first.")
+            return False
+        try:
+            # send command to server
+            self.connection.sendall(command.encode())
+
+            # await response from server
+            response = self.connection.recv(NUMBYTES).decode()
+
+            # check responses as defined in README.md
+            match response:
+                case "[10]":
+                    return True
+                case "[12]":
+                    CLI.printError("Please register a handle first.")
+                case "[31]":
+                    CLI.printError("User handle already exists. Please choose another.")
+                case "[41]":
+                    print("Server directory is empty.")
+                case "[61]":
+                    CLI.printError("Requested file does not exist on the server.")
+        except ConnectionResetError:
+            CLI.printError("Connection to the server has been lost.")
+            self.connection = None
+            self.userName = ""
+
+        return False
+
+    # /join <server_ip_add> <port>
     def establishConnection(self, ip, address):
         try:
             # throw exception if connection already exists
@@ -84,89 +125,92 @@ class Client:
             self.connection.settimeout(None)
             CLI.printSuccess("Connection to the File Exchange Server is successful!")
         except ExistingConnectionException:
+            # [22]
             CLI.printError("Connection already exists. Please disconnect first.")
         except:
+            # [21]
             CLI.printError(
                 "Connection to the Server has failed! Please check IP Address and Port Number."
             )
             self.connection = None
         pass
 
+    # /register <handle>
+    def registerUser(self, handle):
+        if self.sendCommand(f"/register {handle}"):
+            self.userName = handle
+            CLI.printSuccess(f"User handle set to: {handle}!")
+
+    # /leave
     def closeConnection(self):
         if self.hasConnection():
             self.connection.close()
             self.connection = None
             CLI.printSuccess("Disconnected from the server.")
+            self.userName = ""
         else:
             CLI.printError("Disconnection failed. Please connect to the server first.")
 
-        pass
-
+    # /dir
     def getDirectory(self):
-        if self.hasConnection():
-            self.connection.sendall(b"/dir")
+        if self.sendCommand("/dir"):
+            fileList = ""
 
-            data = self.connection.recv(4096)
+            while True:
+                data = self.connection.recv(NUMBYTES)
+                fileList += data.decode()
+                if b"<EOF>" in data:  # Check for end-of-file marker
+                    break
 
-            if data:
-                fileList = data.decode().split("|")
-                print(f"{CLI.OKCYAN}Files in the server directory:{CLI.ENDC}")
-                for file in fileList:
-                    print(f"{CLI.OKCYAN}>{CLI.ENDC} {file}")
-            else:
-                CLI.printError("Failed to retrieve directory listing.")
-        else:
-            CLI.printError("No connection to the server. Please connect first.")
+            # decode -> remove <EOF> -> split filenames
+            fileList = fileList.replace("<EOF>", "").split("|")
+            print(f"{CLI.OKCYAN}Files in the server directory:{CLI.ENDC}")
+            for file in fileList:
+                print(f"{CLI.OKCYAN}>{CLI.ENDC} {file}")
 
+    # /store <filename>
     def sendFile(self, filename):
-        if self.hasConnection():
+        if self.sendCommand(f"/store {filename}"):
             try:
                 with open(f"client/{filename}", "rb") as file:
-                    self.connection.sendall(f"/store {filename}".encode())
                     print(f"Sending file: {filename}")
+
+                    # Read and send file data
                     while True:
-                        data = file.read(1024)
+                        data = file.read(NUMBYTES)
                         if not data:
                             break
                         self.connection.sendall(data)
-                    self.connection.sendall(b"<EOF>")  # Send end-of-file marker
-                CLI.printSuccess(f"File {filename} has been sent to the server.")
-                file.close()
+                    # send end-of-file marker
+                    self.connection.sendall(b"<EOF>")
+
+                    file.close()
+
+                # await [50] from server
+                res = self.connection.recv(NUMBYTES).decode()
+                if res == "[50]":
+                    CLI.printSuccess(f"File {filename} has been sent to the server.")
+
             except FileNotFoundError:
-                CLI.printError(f"File {filename} not found.")
-        else:
-            CLI.printError("No connection to the server. Please connect first.")
+                CLI.printError(f'"{filename}" does not exist')
 
+    # /get <file_name>
     def getFile(self, filename):
-        if self.hasConnection():
-            self.connection.sendall(f"/get {filename}".encode())
-
+        if self.sendCommand(f"/get {filename}"):
+            print("Receiving file...")
             file = open(f"client/{filename}", "wb")
 
             with file:
+                # await file data
                 while True:
-                    data = self.connection.recv(1024)
-                    if data.endswith(b"<EOF>"):  # Check for end-of-file marker
-                        file.write(data[:-5])  # Write data excluding the marker
+                    data = self.connection.recv(NUMBYTES)
+                    if b"<EOF>" in data:  # Check for end-of-file marker
                         break
                     file.write(data)
                 CLI.printSuccess(f"File received from server: {filename}")
                 file.close()
-        else:
-            CLI.printError("No connection to the server. Please connect first.")
 
-    def sendCommand(self, command):
-        if self.hasConnection():
-            self.connection.sendall(command.encode())
-            response = self.connection.recv(1024).decode()
-
-            if response == "Invalid command":
-                CLI.printError("Invalid command")
-            else:
-                print(response)
-        else:
-            CLI.printError("No connection to the server. Please connect first.")
-
+    # /?
     def printCommands(self):
         def printCommand(command, description):
             print(f"{CLI.BOLD}%-32s{CLI.ENDC} : %s" % (command, description))
@@ -187,45 +231,53 @@ class Client:
         if command is None or command == "":
             CLI.printError("No Command Entered")
             self.proceed = True
+            return
 
-        command = command.split(" ")
-        command[0] = command[0].lower()
+        # remove empty strings split command
+        parsedCommand = list(filter(lambda x: x != "", command.split(" ")))
+        parsedCommand[0] = parsedCommand[0].lower()
 
         print()
-        match command[0]:
+        """
+        Note on conditions on number of arguments:
+            The command will still be executed if it 
+            contains more than the require number of arguments
+            the excess arguments will be ignored
+        """
+        match parsedCommand[0]:
             case "/?":
                 self.printCommands()
             case "/join" | "/connect":
-                if len(command) >= 3:
-                    self.establishConnection(command[1], command[2])
+                if len(parsedCommand) >= 3:
+                    self.establishConnection(parsedCommand[1], parsedCommand[2])
                 else:
-                    CLI.printError(
-                        "Invalid command. Please provide IP Address and Port Number"
-                    )
+                    CLI.incorrectUsage("/join <server_ip_add> <port>")
             case "/leave" | "/disconnect":
                 self.closeConnection()
             case "/register":
-                if len(command) >= 2:
-                    CLI.printError("Usage: /register <handle>")
+                if len(parsedCommand) >= 2 and parsedCommand[1] != "":
+                    self.registerUser(parsedCommand[1])
                 else:
-                    self.sendCommand(f"/register {command[1]}")
+                    CLI.incorrectUsage("/register <handle>")
             case "/store":
-                if len(command) >= 2:
-                    CLI.printError("Usage: /store <filename>")
+                if len(parsedCommand) >= 2:
+                    self.sendFile(parsedCommand[1])
                 else:
-                    self.sendFile(command[1])
+                    CLI.incorrectUsage("/store <filename>")
             case "/dir":
                 self.getDirectory()
                 pass
             case "/get":
-                if len(command) != 2:
-                    CLI.printError("Usage: /getfile <filename>")
+                if len(parsedCommand) >= 2:
+                    self.getFile(parsedCommand[1])
                 else:
-                    self.getFile(command[1])
+                    CLI.incorrectUsage("/get <filename>")
             case "/quit":
-                if not self.hasConnection():
+                if not self.hasConnection() or DEBUGMODE:
                     print(f"{CLI.HEADER}Quitting the application...{CLI.ENDC}\n")
                     self.proceed = False
+                    if DEBUGMODE:
+                        self.closeConnection()
                 else:
                     CLI.printError("Please disconnect from the server first.")
             case "/whatthesigma":
@@ -237,10 +289,12 @@ class Client:
                 self.closeConnection()
                 pass
             case _:
-                CLI.printError("Invalid command")
+                CLI.printError("Command not recognized.")
+                print("Type /? to see the list of commands.")
         print()
 
 
 if __name__ == "__main__":
     # the argument here is for ez testing
+    os.system("cls")
     client = Client(len(sys.argv) > 1 and sys.argv[1].lower() == "join")

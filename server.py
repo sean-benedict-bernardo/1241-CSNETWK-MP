@@ -2,12 +2,13 @@ import socket
 import os
 import threading
 
+NUMBYTES = 1024
+
 
 class Server:
     def __init__(self):
         self.ip_port = ("127.0.0.1", 12345)
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.users = []
         self.threads = {}
         self.keepAlive = True
         self.serverLoop()  # Open server
@@ -15,35 +16,56 @@ class Server:
     # /dir
     def listDirectory(self, conn):
         filesList = os.listdir("server/")
-        msg = "|".join(filesList)
-        conn.sendall(msg.encode())
+
+        if len(filesList) == 0:
+            conn.sendall(b"[41]")
+        else:
+            conn.sendall(b"[10]")
+            conn.sendall("|".join(filesList).encode())
+            conn.sendall(b"<EOF>")
         pass
 
     # /register
-    def registerUser(self, conn, userName):
-        if userName not in self.users:
-            self.users.append(userName)
-            conn.sendall(f"User {userName} has been registered".encode())
+    def registerUser(self, conn, clientId, userName):
+        # Get list of registered usernames
+        listUsernames = [
+            self.threads[user]["name"].lower()
+            for user in self.threads
+            if self.threads[user]["name"] != ""
+        ]
+
+        if userName.lower() not in listUsernames:
+            self.threads[clientId]["name"] = userName
+            conn.sendall(b"[10]")
         else:
-            conn.sendall(b"Error: Registration failed. Handle or alias already exists.")
+            conn.sendall(b"[31]")
         pass
 
     # /get
     def sendFile(self, conn, fileName):
         if fileName not in os.listdir("server/"):
-            conn.sendall(b"File does not exist")
+            conn.sendall(b"[61]")
             return
+        else:
+            conn.sendall(b"[10]")
 
         file = open(f"server/{fileName}", "rb")
         with file:
             print(f"Sending file: {fileName}")
+
+            # Read and send file data
             while True:
-                data = file.read(1024)
+                # read data from file in chunks
+                data = file.read(NUMBYTES)
+                # break if no more data to read
                 if not data:
                     break
+                # send chunk to client
                 conn.sendall(data)
-            conn.sendall(b"<EOF>")  # Send end-of-file marker
-            print(f"File {fileName} has been sent to the client.")
+            # send end-of-file marker
+            conn.sendall(b"<EOF>")
+
+            print(f'"{fileName}" has been sent to the client.')
             file.close()
 
     # /store
@@ -54,57 +76,68 @@ class Server:
         with file:
             print(f"Receiving file: {fileName}")
             while True:
-                data = conn.recv(1024)
+                data = conn.recv(NUMBYTES)
                 if not data:
                     break
+                if data.endswith(b"<EOF>"):  # Check for end-of-file marker
+                    file.write(data[:-5])  # Write data excluding the marker
+                    conn.sendall(b"[50]")  # acknowledge file received
+                    break
+                file.write(data)
+        file.close()
+        print(f'"{fileName}" has been received from the client.')
 
-                # Write data and exclude the end-of-file marker if there is one
-                file.write(data[:-5] if data.endswith(b"<EOF>") else data)
-            file.close()
-
-    def parseCommand(self, command, conn):
+    def parseCommand(self, command, conn, clientId):
         args = command.split()
 
+        # Convert command to lowercase if whatever reason the server doesn't echo the command in lowercase
+        args[0] = args[0].lower()
+
+        # Check if user is registering or is already registered
+        if args[0] != "/register" and self.threads[clientId]["name"] == "":
+            conn.sendall(b"[12]")
+            return  # Exit function
+
         match args[0]:
-            case "/dir" | "/ls":
+            case "/dir":
                 self.listDirectory(conn)
             case "/register":
-                if len(args) >= 2:
-                    self.registerUser(conn, args[1])
-                else:
-                    conn.sendall(b"Invalid command")
+                if len(args) == 2:
+                    self.registerUser(conn, clientId, args[1])
             case "/store":
-                if len(args) >= 2:
+                if len(args) == 2:
                     self.receiveFile(conn, args[1])
-                else:
-                    conn.sendall(b"Invalid command")
             case "/get":
-                if len(args) >= 2:
+                if len(args) == 2:
                     self.sendFile(conn, args[1])
-                else:
-                    conn.sendall(b"Invalid command")
-            case "/killserver":
-                conn.sendall(b"Server is shutting down")
-                self.keepAlive = False
             case _:
                 conn.sendall(b"Invalid command")
 
     def handleClient(self, conn, addr):
-        print(f"Connected by {addr[0]}:{addr[1]}")
+        clientId = f"{addr[0]}:{addr[1]}"
+        print(f"Connected by {clientId}")
 
         # Receive data from the client
         while self.keepAlive:
+            # For ease of identification
+            # if client hasn't registered: print IP:PORT
+            # if client registered: print username
+            terminalAlias = clientId
+            if self.threads[clientId]["name"] != "":
+                terminalAlias = self.threads[clientId]["name"]
+
             try:
-                data = conn.recv(1024)
+                data = conn.recv(NUMBYTES)
                 if not data:
+                    print(terminalAlias, "disconnected")
+                    self.threads.pop(clientId)  # remove thread from list
                     break
                 else:
-                    print(f"{addr[1]}: {data.decode()}")
-                    self.parseCommand(data.decode(), conn)
-            except Exception as err:
-                print(f"Error: {err}")
-                if type(err).__name__ == "ConnectionResetError":
-                    print(f"Connection reset by {addr[1]}")
+                    print(f"{terminalAlias}: {data.decode()}")
+                    self.parseCommand(data.decode(), conn, clientId)
+            except ConnectionResetError:
+                print(terminalAlias, "disconnected, connection reset")
+                self.threads.pop(clientId)
                 break
         pass
 
@@ -119,7 +152,7 @@ class Server:
             conn, addr = self.server.accept()
             thread = threading.Thread(target=self.handleClient, args=(conn, addr))
             thread.start()
-            self.threads[f"{addr[0]}:{addr[1]}"] = thread
+            self.threads[f"{addr[0]}:{addr[1]}"] = {"thread": thread, "name": ""}
 
 
 if __name__ == "__main__":
