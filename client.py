@@ -1,6 +1,7 @@
 # Client application for the server application
 import socket
 import webbrowser
+import sys
 import os
 
 """
@@ -43,16 +44,25 @@ class Client:
     connection = None
     proceed = True
 
-    def __init__(self) -> None:
-        os.system("cls")
+    def __init__(self, autoStart=False) -> None:
         print(
             f"{CLI.HEADER+CLI.BOLD}Good Day{CLI.ENDC}\n"
             + "To get started, type /? to see the list of commands\n"
         )
 
+        if autoStart:
+            print("Auto-starting connection to server...")
+            self.handleInput("/join 127.0.0.1 12345")
+
         while self.proceed:
-            str_input = input()
-            self.handleInput(str_input)
+            try:
+                str_input = input()
+                self.handleInput(str_input)
+            except KeyboardInterrupt:
+                if not self.hasConnection():
+                    self.handleInput("/quit")
+                    break # terminate the loop
+                # nothing happens otherwise
 
     def hasConnection(self):
         return self.connection is not None
@@ -195,12 +205,12 @@ class Client:
             case "/leave" | "/disconnect":
                 self.closeConnection()
             case "/register":
-                if len(command) != 2:
+                if len(command) >= 2:
                     CLI.printError("Usage: /register <handle>")
                 else:
                     self.sendCommand(f"/register {command[1]}")
             case "/store":
-                if len(command) != 2:
+                if len(command) >= 2:
                     CLI.printError("Usage: /store <filename>")
                 else:
                     self.sendFile(command[1])
@@ -213,9 +223,8 @@ class Client:
                 else:
                     self.getFile(command[1])
             case "/quit":
-                # 
                 if not self.hasConnection():
-                    print("Quitting the application...")
+                    print(f"{CLI.HEADER}Quitting the application...{CLI.ENDC}\n")
                     self.proceed = False
                 else:
                     CLI.printError("Please disconnect from the server first.")
@@ -233,4 +242,5 @@ class Client:
 
 
 if __name__ == "__main__":
-    client = Client()
+    # the argument here is for ez testing
+    client = Client(len(sys.argv) > 1 and sys.argv[1].lower() == "join")
