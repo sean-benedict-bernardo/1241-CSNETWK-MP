@@ -10,6 +10,7 @@ CLI prettifier
 
 DEBUGMODE = True
 NUMBYTES = 1024
+FILENAMESPACE = "%20"
 
 
 class CLI:
@@ -75,6 +76,9 @@ class Client:
 
     def hasConnection(self):
         return self.connection is not None
+
+    def joinFileName(self, args):
+        return FILENAMESPACE.join(args)
 
     def sendCommand(self, command):
         if not self.hasConnection():
@@ -169,10 +173,12 @@ class Client:
                 print(f"{CLI.OKCYAN}>{CLI.ENDC} {file}")
 
     # /store <filename>
-    def sendFile(self, filename):
+    def sendFile(self, filename: str):
         if self.sendCommand(f"/store {filename}"):
             try:
-                with open(f"client/{filename}", "rb") as file:
+                with open(
+                    f"client/{filename.replace(FILENAMESPACE, " ")}", "rb"
+                ) as file:
                     print(f"Sending file: {filename}")
 
                     # Read and send file data
@@ -195,8 +201,9 @@ class Client:
                 CLI.printError(f'"{filename}" does not exist')
 
     # /get <file_name>
-    def getFile(self, filename):
+    def getFile(self, filename: str):
         if self.sendCommand(f"/get {filename}"):
+            filename = filename.replace(FILENAMESPACE, " ")
             print("Receiving file...")
             file = open(f"client/{filename}", "wb")
 
@@ -204,10 +211,11 @@ class Client:
                 # await file data
                 while True:
                     data = self.connection.recv(NUMBYTES)
-                    if b"<EOF>" in data:  # Check for end-of-file marker
+                    if data.endswith(b"<EOF>"):  # Check for end-of-file marker
+                        file.write(data[:-5])
                         break
                     file.write(data)
-                CLI.printSuccess(f"File received from server: {filename}")
+                CLI.printSuccess(f'File received from server: "{filename}"')
                 file.close()
 
     # /?
@@ -229,7 +237,7 @@ class Client:
 
     def handleInput(self, command=None):
         if command is None or command == "":
-            CLI.printError("No Command Entered")
+            CLI.printError("\nNo Command Entered\n")
             self.proceed = True
             return
 
@@ -261,7 +269,7 @@ class Client:
                     CLI.incorrectUsage("/register <handle>")
             case "/store":
                 if len(parsedCommand) >= 2:
-                    self.sendFile(parsedCommand[1])
+                    self.sendFile(self.joinFileName(parsedCommand[1:]))
                 else:
                     CLI.incorrectUsage("/store <filename>")
             case "/dir":
@@ -269,7 +277,7 @@ class Client:
                 pass
             case "/get":
                 if len(parsedCommand) >= 2:
-                    self.getFile(parsedCommand[1])
+                    self.getFile(self.joinFileName(parsedCommand[1:]))
                 else:
                     CLI.incorrectUsage("/get <filename>")
             case "/quit":

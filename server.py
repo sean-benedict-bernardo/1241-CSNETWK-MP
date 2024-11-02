@@ -3,6 +3,7 @@ import os
 import threading
 
 NUMBYTES = 1024
+FILENAMESPACE = "%20"
 
 
 class Server:
@@ -12,6 +13,9 @@ class Server:
         self.threads = {}
         self.keepAlive = True
         self.serverLoop()  # Open server
+
+    def joinFileName(self, args):
+        return FILENAMESPACE.join(args)
 
     # /dir
     def listDirectory(self, conn):
@@ -43,6 +47,8 @@ class Server:
 
     # /get
     def sendFile(self, conn, fileName):
+        fileName = fileName.replace(FILENAMESPACE, " ")
+
         if fileName not in os.listdir("server/"):
             conn.sendall(b"[61]")
             return
@@ -51,7 +57,7 @@ class Server:
 
         file = open(f"server/{fileName}", "rb")
         with file:
-            print(f"Sending file: {fileName}")
+            print(f"Sending file: \"{fileName}\"")
 
             # Read and send file data
             while True:
@@ -69,23 +75,28 @@ class Server:
             file.close()
 
     # /store
-    def receiveFile(self, conn, fileName):
+    def receiveFile(self, conn, fileName: str):
+        # Replace whitespace markwer with actual space
+        fileName = fileName.replace(FILENAMESPACE, " ")
+
         os.makedirs("server", exist_ok=True)  # Ensure the server directory exists
         file = open(f"server/{fileName}", "wb")
+
+        # acknowledge to client that server is ready to receive file
+        conn.sendall(b"[10]")
 
         with file:
             print(f"Receiving file: {fileName}")
             while True:
                 data = conn.recv(NUMBYTES)
-                if not data:
-                    break
-                if data.endswith(b"<EOF>"):  # Check for end-of-file marker
-                    file.write(data[:-5])  # Write data excluding the marker
-                    conn.sendall(b"[50]")  # acknowledge file received
+                if not data or b"<EOF>" in data:
                     break
                 file.write(data)
         file.close()
         print(f'"{fileName}" has been received from the client.')
+
+        # Send confirmation to client that file has been received
+        conn.sendall(b"[50]")
 
     def parseCommand(self, command, conn, clientId):
         args = command.split()
@@ -95,7 +106,7 @@ class Server:
 
         # Check if user is registering or is already registered
         if args[0] != "/register" and self.threads[clientId]["name"] == "":
-            conn.sendall(b"[12]")
+            conn.sendall(b"[12]")  # inform client is not registered
             return  # Exit function
 
         match args[0]:
