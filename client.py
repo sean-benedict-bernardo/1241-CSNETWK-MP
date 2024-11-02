@@ -174,31 +174,35 @@ class Client:
 
     # /store <filename>
     def sendFile(self, filename: str):
+        # Check if file exists
+        try:
+            file = open(f"client/{filename.replace(FILENAMESPACE, ' ')}", "rb")
+            file.close()
+        except FileNotFoundError:
+            CLI.printError(f'"{filename}" does not exist')
+            return
+
+        # transmit file
         if self.sendCommand(f"/store {filename}"):
-            try:
-                with open(
-                    f"client/{filename.replace(FILENAMESPACE, " ")}", "rb"
-                ) as file:
-                    print(f"Sending file: {filename}")
+            filename = filename.replace(FILENAMESPACE, " ")
+            with open(f"client/{filename.replace(FILENAMESPACE, " ")}", "rb") as file:
+                print(f"Sending file: {filename}")
 
-                    # Read and send file data
-                    while True:
-                        data = file.read(NUMBYTES)
-                        if not data:
-                            break
-                        self.connection.sendall(data)
-                    # send end-of-file marker
-                    self.connection.sendall(b"<EOF>")
+                # Read and send file data
+                while True:
+                    data = file.read(NUMBYTES)
+                    if not data:
+                        break
+                    self.connection.sendall(data)
+                # send end-of-file marker
+                self.connection.sendall(b"<EOF>")
 
-                    file.close()
+                file.close()
 
-                # await [50] from server
-                res = self.connection.recv(NUMBYTES).decode()
-                if res == "[50]":
-                    CLI.printSuccess(f"File {filename} has been sent to the server.")
-
-            except FileNotFoundError:
-                CLI.printError(f'"{filename}" does not exist')
+            # await [50] from server
+            res = self.connection.recv(NUMBYTES).decode()
+            if res == "[50]":
+                CLI.printSuccess(f"File {filename} has been sent to the server.")
 
     # /get <file_name>
     def getFile(self, filename: str):
