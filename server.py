@@ -12,6 +12,11 @@ class Server:
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.threads = {}
         self.keepAlive = True
+
+        if not os.path.exists("server"):
+            print("Creating server directory...")
+            os.mkdir("server")
+
         self.serverLoop()  # Open server
 
     def joinFileName(self, args):
@@ -57,7 +62,7 @@ class Server:
 
         file = open(f"server/{fileName}", "rb")
         with file:
-            print(f"Sending file: \"{fileName}\"")
+            print(f'Sending file: "{fileName}"')
 
             # Read and send file data
             while True:

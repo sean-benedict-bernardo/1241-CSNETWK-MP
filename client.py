@@ -63,6 +63,13 @@ class Client:
             print("Auto-starting connection to server...")
             self.handleInput("/join 127.0.0.1 12345")
 
+        if not os.path.exists("client"):
+            print("Creating client folder...")
+            os.mkdir("client")
+
+        self.clientLoop()
+
+    def clientLoop(self):
         while self.proceed:
             try:
                 print(f"{self.userName}>", end=" ")
@@ -288,7 +295,7 @@ class Client:
                 if not self.hasConnection() or DEBUGMODE:
                     print(f"{CLI.HEADER}Quitting the application...{CLI.ENDC}\n")
                     self.proceed = False
-                    if DEBUGMODE:
+                    if DEBUGMODE and self.hasConnection():
                         self.closeConnection()
                 else:
                     CLI.printError("Please disconnect from the server first.")
@@ -309,4 +316,7 @@ class Client:
 if __name__ == "__main__":
     # the argument here is for ez testing
     os.system("cls")
-    client = Client(len(sys.argv) > 1 and sys.argv[1].lower() == "join")
+
+    DEBUGMODE = len(sys.argv) > 1 and sys.argv[1].lower() == "join"
+
+    client = Client(DEBUGMODE)

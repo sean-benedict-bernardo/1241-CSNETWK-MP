@@ -1,7 +1,8 @@
 __pycache__/
 
 # these batch files make it faster to run the tests
-*.bat 
+*.bat
+*.txt
 
 # demo files
 client/
