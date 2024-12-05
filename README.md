@@ -8,6 +8,13 @@ A simple file exchange system in partial fulfillment of CSNETWK, Term 1 AY 2024-
 - Sean Bernardo
 - Kenzo De Vera
 
+## Installation
+
+1. `git clone https://github.com/sean-benedict-bernardo/1241-CSNETWK-MP.git`
+2. `cd 1241-CSNETWK-MP`
+3. `python server.py`
+4. Open a new terminal and run `python client.py`
+
 <hr>
 
 ## Procedures
